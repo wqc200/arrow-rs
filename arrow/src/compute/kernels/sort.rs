@@ -17,14 +17,12 @@
 
 //! Defines sort kernel for `ArrayRef`
 
-use std::cmp::Ordering;
-
 use crate::array::*;
 use crate::buffer::MutableBuffer;
 use crate::compute::take;
 use crate::datatypes::*;
 use crate::error::{ArrowError, Result};
-
+use std::cmp::Ordering;
 use TimeUnit::*;
 
 /// Sort the `ArrayRef` using `SortOptions`.
@@ -165,7 +163,7 @@ pub fn sort_to_indices(
 
     let (v, n) = partition_validity(values);
 
-    match values.data_type() {
+    Ok(match values.data_type() {
         DataType::Boolean => sort_boolean(values, v, n, &options, limit),
         DataType::Int8 => {
             sort_primitive::<Int8Type, _>(values, v, n, cmp, &options, limit)
@@ -274,10 +272,18 @@ pub fn sort_to_indices(
             DataType::UInt64 => {
                 sort_list::<i32, UInt64Type>(values, v, n, &options, limit)
             }
-            t => Err(ArrowError::ComputeError(format!(
-                "Sort not supported for list type {:?}",
-                t
-            ))),
+            DataType::Float32 => {
+                sort_list::<i32, Float32Type>(values, v, n, &options, limit)
+            }
+            DataType::Float64 => {
+                sort_list::<i32, Float64Type>(values, v, n, &options, limit)
+            }
+            t => {
+                return Err(ArrowError::ComputeError(format!(
+                    "Sort not supported for list type {:?}",
+                    t
+                )))
+            }
         },
         DataType::LargeList(field) => match field.data_type() {
             DataType::Int8 => sort_list::<i64, Int8Type>(values, v, n, &options, limit),
@@ -294,10 +300,18 @@ pub fn sort_to_indices(
             DataType::UInt64 => {
                 sort_list::<i64, UInt64Type>(values, v, n, &options, limit)
             }
-            t => Err(ArrowError::ComputeError(format!(
-                "Sort not supported for list type {:?}",
-                t
-            ))),
+            DataType::Float32 => {
+                sort_list::<i64, Float32Type>(values, v, n, &options, limit)
+            }
+            DataType::Float64 => {
+                sort_list::<i64, Float64Type>(values, v, n, &options, limit)
+            }
+            t => {
+                return Err(ArrowError::ComputeError(format!(
+                    "Sort not supported for list type {:?}",
+                    t
+                )))
+            }
         },
         DataType::FixedSizeList(field, _) => match field.data_type() {
             DataType::Int8 => sort_list::<i32, Int8Type>(values, v, n, &options, limit),
@@ -314,10 +328,18 @@ pub fn sort_to_indices(
             DataType::UInt64 => {
                 sort_list::<i32, UInt64Type>(values, v, n, &options, limit)
             }
-            t => Err(ArrowError::ComputeError(format!(
-                "Sort not supported for list type {:?}",
-                t
-            ))),
+            DataType::Float32 => {
+                sort_list::<i32, Float32Type>(values, v, n, &options, limit)
+            }
+            DataType::Float64 => {
+                sort_list::<i32, Float64Type>(values, v, n, &options, limit)
+            }
+            t => {
+                return Err(ArrowError::ComputeError(format!(
+                    "Sort not supported for list type {:?}",
+                    t
+                )))
+            }
         },
         DataType::Dictionary(key_type, value_type)
             if *value_type.as_ref() == DataType::Utf8 =>
@@ -347,21 +369,25 @@ pub fn sort_to_indices(
                 DataType::UInt64 => {
                     sort_string_dictionary::<UInt64Type>(values, v, n, &options, limit)
                 }
-                t => Err(ArrowError::ComputeError(format!(
-                    "Sort not supported for dictionary key type {:?}",
-                    t
-                ))),
+                t => {
+                    return Err(ArrowError::ComputeError(format!(
+                        "Sort not supported for dictionary key type {:?}",
+                        t
+                    )))
+                }
             }
         }
-        t => Err(ArrowError::ComputeError(format!(
-            "Sort not supported for data type {:?}",
-            t
-        ))),
-    }
+        t => {
+            return Err(ArrowError::ComputeError(format!(
+                "Sort not supported for data type {:?}",
+                t
+            )))
+        }
+    })
 }
 
 /// Options that define how sort kernels should behave
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SortOptions {
     /// Whether to sort in descending order
     pub descending: bool,
@@ -380,14 +406,13 @@ impl Default for SortOptions {
 }
 
 /// Sort primitive values
-#[allow(clippy::unnecessary_wraps)]
 fn sort_boolean(
     values: &ArrayRef,
     value_indices: Vec<u32>,
     null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array> {
+) -> UInt32Array {
     let values = values
         .as_any()
         .downcast_ref::<BooleanArray>()
@@ -453,11 +478,10 @@ fn sort_boolean(
         vec![],
     );
 
-    Ok(UInt32Array::from(result_data))
+    UInt32Array::from(result_data)
 }
 
 /// Sort primitive values
-#[allow(clippy::unnecessary_wraps)]
 fn sort_primitive<T, F>(
     values: &ArrayRef,
     value_indices: Vec<u32>,
@@ -465,7 +489,7 @@ fn sort_primitive<T, F>(
     cmp: F,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array>
+) -> UInt32Array
 where
     T: ArrowPrimitiveType,
     T::Native: std::cmp::PartialOrd,
@@ -533,7 +557,7 @@ where
         vec![],
     );
 
-    Ok(UInt32Array::from(result_data))
+    UInt32Array::from(result_data)
 }
 
 // insert valid and nan values in the correct order depending on the descending flag
@@ -558,7 +582,7 @@ fn sort_string<Offset: StringOffsetSizeTrait>(
     null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array> {
+) -> UInt32Array {
     let values = values
         .as_any()
         .downcast_ref::<GenericStringArray<Offset>>()
@@ -581,10 +605,10 @@ fn sort_string_dictionary<T: ArrowDictionaryKeyType>(
     null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array> {
+) -> UInt32Array {
     let values: &DictionaryArray<T> = as_dictionary_array::<T>(values);
 
-    let keys: &PrimitiveArray<T> = &values.keys_array();
+    let keys: &PrimitiveArray<T> = values.keys();
 
     let dict = values.values();
     let dict: &StringArray = as_string_array(&dict);
@@ -604,7 +628,6 @@ fn sort_string_dictionary<T: ArrowDictionaryKeyType>(
 
 /// shared implementation between dictionary encoded and plain string arrays
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 fn sort_string_helper<'a, A: Array, F>(
     values: &'a A,
     value_indices: Vec<u32>,
@@ -612,7 +635,7 @@ fn sort_string_helper<'a, A: Array, F>(
     options: &SortOptions,
     limit: Option<usize>,
     value_fn: F,
-) -> Result<UInt32Array>
+) -> UInt32Array
 where
     F: Fn(&'a A, u32) -> &str,
 {
@@ -645,23 +668,22 @@ where
     if options.nulls_first {
         nulls.append(&mut valid_indices);
         nulls.truncate(len);
-        return Ok(UInt32Array::from(nulls));
+        UInt32Array::from(nulls)
+    } else {
+        // no need to sort nulls as they are in the correct order already
+        valid_indices.append(&mut nulls);
+        valid_indices.truncate(len);
+        UInt32Array::from(valid_indices)
     }
-
-    // no need to sort nulls as they are in the correct order already
-    valid_indices.append(&mut nulls);
-    valid_indices.truncate(len);
-    Ok(UInt32Array::from(valid_indices))
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn sort_list<S, T>(
     values: &ArrayRef,
     value_indices: Vec<u32>,
     mut null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array>
+) -> UInt32Array
 where
     S: OffsetSizeTrait,
     T: ArrowPrimitiveType,
@@ -711,12 +733,12 @@ where
     if options.nulls_first {
         null_indices.append(&mut valid_indices);
         null_indices.truncate(len);
-        return Ok(UInt32Array::from(null_indices));
+        UInt32Array::from(null_indices)
+    } else {
+        valid_indices.append(&mut null_indices);
+        valid_indices.truncate(len);
+        UInt32Array::from(valid_indices)
     }
-
-    valid_indices.append(&mut null_indices);
-    valid_indices.truncate(len);
-    Ok(UInt32Array::from(valid_indices))
 }
 
 /// Compare two `Array`s based on the ordering defined in [ord](crate::array::ord).
@@ -817,26 +839,55 @@ pub fn lexsort_to_indices(
         ));
     };
 
-    // map to data and DynComparator
-    let flat_columns = columns
-        .iter()
-        .map(
-            |column| -> Result<(&ArrayData, DynComparator, SortOptions)> {
-                // flatten and convert build comparators
-                // use ArrayData for is_valid checks later to avoid dynamic call
-                let values = column.values.as_ref();
-                let data = values.data_ref();
-                Ok((
-                    data,
-                    build_compare(values, values)?,
-                    column.options.unwrap_or_default(),
-                ))
-            },
-        )
-        .collect::<Result<Vec<(&ArrayData, DynComparator, SortOptions)>>>()?;
+    let mut value_indices = (0..row_count).collect::<Vec<usize>>();
+    let mut len = value_indices.len();
 
-    let lex_comparator = |a_idx: &usize, b_idx: &usize| -> Ordering {
-        for (data, comparator, sort_option) in flat_columns.iter() {
+    if let Some(limit) = limit {
+        len = limit.min(len);
+    }
+
+    let lexicographical_comparator = LexicographicalComparator::try_new(columns)?;
+    sort_by(&mut value_indices, len, |a, b| {
+        lexicographical_comparator.compare(a, b)
+    });
+
+    Ok(UInt32Array::from(
+        (&value_indices)[0..len]
+            .iter()
+            .map(|i| *i as u32)
+            .collect::<Vec<u32>>(),
+    ))
+}
+
+/// It's unstable_sort, may not preserve the order of equal elements
+pub fn partial_sort<T, F>(v: &mut [T], limit: usize, mut is_less: F)
+where
+    F: FnMut(&T, &T) -> Ordering,
+{
+    let (before, _mid, _after) = v.select_nth_unstable_by(limit, &mut is_less);
+    before.sort_unstable_by(is_less);
+}
+
+type LexicographicalCompareItem<'a> = (
+    &'a ArrayData,                              // data
+    Box<dyn Fn(usize, usize) -> Ordering + 'a>, // comparator
+    SortOptions,                                // sort_option
+);
+
+/// A lexicographical comparator that wraps given array data (columns) and can lexicographically compare data
+/// at given two indices. The lifetime is the same at the data wrapped.
+pub(super) struct LexicographicalComparator<'a> {
+    compare_items: Vec<LexicographicalCompareItem<'a>>,
+}
+
+impl LexicographicalComparator<'_> {
+    /// lexicographically compare values at the wrapped columns with given indices.
+    pub(super) fn compare<'a, 'b>(
+        &'a self,
+        a_idx: &'b usize,
+        b_idx: &'b usize,
+    ) -> Ordering {
+        for (data, comparator, sort_option) in &self.compare_items {
             match (data.is_valid(*a_idx), data.is_valid(*b_idx)) {
                 (true, true) => {
                     match (comparator)(*a_idx, *b_idx) {
@@ -871,31 +922,29 @@ pub fn lexsort_to_indices(
         }
 
         Ordering::Equal
-    };
-
-    let mut value_indices = (0..row_count).collect::<Vec<usize>>();
-    let mut len = value_indices.len();
-
-    if let Some(limit) = limit {
-        len = limit.min(len);
     }
-    sort_by(&mut value_indices, len, lex_comparator);
 
-    Ok(UInt32Array::from(
-        (&value_indices)[0..len]
+    /// Create a new lex comparator that will wrap the given sort columns and give comparison
+    /// results with two indices.
+    pub(super) fn try_new(
+        columns: &[SortColumn],
+    ) -> Result<LexicographicalComparator<'_>> {
+        let compare_items = columns
             .iter()
-            .map(|i| *i as u32)
-            .collect::<Vec<u32>>(),
-    ))
-}
-
-/// It's unstable_sort, may not preserve the order of equal elements
-pub fn partial_sort<T, F>(v: &mut [T], limit: usize, mut is_less: F)
-where
-    F: FnMut(&T, &T) -> Ordering,
-{
-    let (before, _mid, _after) = v.select_nth_unstable_by(limit, &mut is_less);
-    before.sort_unstable_by(is_less);
+            .map(|column| {
+                // flatten and convert build comparators
+                // use ArrayData for is_valid checks later to avoid dynamic call
+                let values = column.values.as_ref();
+                let data = values.data_ref();
+                Ok((
+                    data,
+                    build_compare(values, values)?,
+                    column.options.unwrap_or_default(),
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(LexicographicalComparator { compare_items })
+    }
 }
 
 #[cfg(test)]
@@ -1028,7 +1077,7 @@ mod tests {
             .as_any()
             .downcast_ref::<StringArray>()
             .expect("Unable to get dictionary values");
-        let sorted_keys = sorted.keys_array();
+        let sorted_keys = sorted.keys();
 
         assert_eq!(sorted_dict, dict);
 
@@ -2152,6 +2201,52 @@ mod tests {
                 Some(vec![Some(4)]),
             ],
             Some(1),
+        );
+
+        test_sort_list_arrays::<Float32Type>(
+            vec![
+                Some(vec![Some(1.0), Some(0.0)]),
+                Some(vec![Some(4.0), Some(3.0), Some(2.0), Some(1.0)]),
+                Some(vec![Some(2.0), Some(3.0), Some(4.0)]),
+                Some(vec![Some(3.0), Some(3.0), Some(3.0), Some(3.0)]),
+                Some(vec![Some(1.0), Some(1.0)]),
+            ],
+            Some(SortOptions {
+                descending: false,
+                nulls_first: false,
+            }),
+            None,
+            vec![
+                Some(vec![Some(1.0), Some(0.0)]),
+                Some(vec![Some(1.0), Some(1.0)]),
+                Some(vec![Some(2.0), Some(3.0), Some(4.0)]),
+                Some(vec![Some(3.0), Some(3.0), Some(3.0), Some(3.0)]),
+                Some(vec![Some(4.0), Some(3.0), Some(2.0), Some(1.0)]),
+            ],
+            None,
+        );
+
+        test_sort_list_arrays::<Float64Type>(
+            vec![
+                Some(vec![Some(1.0), Some(0.0)]),
+                Some(vec![Some(4.0), Some(3.0), Some(2.0), Some(1.0)]),
+                Some(vec![Some(2.0), Some(3.0), Some(4.0)]),
+                Some(vec![Some(3.0), Some(3.0), Some(3.0), Some(3.0)]),
+                Some(vec![Some(1.0), Some(1.0)]),
+            ],
+            Some(SortOptions {
+                descending: false,
+                nulls_first: false,
+            }),
+            None,
+            vec![
+                Some(vec![Some(1.0), Some(0.0)]),
+                Some(vec![Some(1.0), Some(1.0)]),
+                Some(vec![Some(2.0), Some(3.0), Some(4.0)]),
+                Some(vec![Some(3.0), Some(3.0), Some(3.0), Some(3.0)]),
+                Some(vec![Some(4.0), Some(3.0), Some(2.0), Some(1.0)]),
+            ],
+            None,
         );
 
         test_sort_list_arrays::<Int32Type>(
